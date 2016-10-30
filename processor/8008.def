@@ -1,12 +1,52 @@
 #######################################################################################
 #
-#	FETCH() 		PC -> MA, Inc PC, READ
+#								Phase seperated 8008 core
+#
+#######################################################################################
+#
 #	READ() 			Memory[MA] -> MB
 #	WRITE() 		MB -> Memory[MA]
+#
+#	FETCH() 		PC -> MA, Inc PC, READ
 #	ADD(a,b)		pszValue = A + a + b (similar for SUB)
+#	HL()			HL Address.
+#	PCTR() 			PC[PCIX]
 #
+#	@C 				Bits 3..5 condition name (CC,NZ,P,PO,CS,Z,M,PE)
+#	@P 				Bits 1..5 Port Number in hex (00,01 ... 1F)
 #	@R 				Bits 3..5 register name ABCDEHLM
+#	@S 				Bits 0..2 register name ABCDEHLM
+#	@T 				Bits 3..5 tests for @C (on pszValue)
+#	@X 				Bits 3..5 as hexadecimal (08,10,18,20,28,30,38)
 #
+#	Variables:
+#	
+#	8 bit:	A,B,C,D,E,H,L,MB,pszValue,Halt,Carry,PCIX,Opcode,temp8
+#	16 bit:	PC[8],temp16,MA
+#
+#######################################################################################
+
+:#define FETCH() 	MA = PC;PC++;READ()
+:#define ADD(a,b) 	temp16 = A + (a) + (b);pszValue = temp16 & 0xFF;Carry = (temp16 >> 8) & 1
+:#define SUB(a,b) 	temp16 = A - (a) - (b);pszValue = temp16 & 0xFF;Carry = (temp16 >> 8) & 1
+:#define HL() 		((((WORD16)H) << 8)|L)
+:#define PCTR() 	PC[PCIX]
+
+:static void __Reset8008(void) {
+:	for (A = 0;A < 8;A++) PC[A] = 0;
+:	A = B = C = D = E = H = L = pszValue = Halt = Carry = PCIX = 0;	
+:}
+
+:static void __IsParityEven(void) {
+:	BYTE8 n = pszValue;
+:	BYTE8 bitCount = 0;
+:	while (n != 0) {
+:		if ((n & 1) != 0) bitCount++;
+:		n = n >> 1;	
+:	}	
+:	return ((n & 1) == 0);
+:}
+
 #######################################################################################
 #
 #				This comes from Table 2 of the Scelbi 8-H Users Manual
@@ -17,46 +57,46 @@
 #				Load Data from one CPU Register to another CPU Register
 #
 C0-C6	5 	"MOV A,@R"	
-	00	[PCTR,Opcode]		A = @R
+	00	[PCTR(),Opcode]		A = @R
 
 C8-CE	5 	"MOV B,@R"	
-	00	[PCTR,Opcode]		B = @R
+	00	[PCTR(),Opcode]		B = @R
 
 D0-D6	5 	"MOV C,@R"	
-	00	[PCTR,Opcode]		C = @R
+	00	[PCTR(),Opcode]		C = @R
 
 D8-DE	5 	"MOV D,@R"	
-	00	[PCTR,Opcode]		D = @R
+	00	[PCTR(),Opcode]		D = @R
 
 E0-E6	5 	"MOV E,@R"	
-	00	[PCTR,Opcode]		E = @R
+	00	[PCTR(),Opcode]		E = @R
 
 E8-EE	5 	"MOV H,@R"	
-	00	[PCTR,Opcode]		H = @R
+	00	[PCTR(),Opcode]		H = @R
 
 F0-F6	5 	"MOV L,@R"	
-	00	[PCTR,Opcode]		L = @R
+	00	[PCTR(),Opcode]		L = @R
 
 #
 #			Load Data from a CPU Register into Memory
 #
 F8-FE 	7 	"MOV M,@R"
 	** 	[MA,Opcode]			MA = HL()
-	00  [PCTR,@R]			MB = @R;WRITE()
+	00  [PCTR(),@R]			MB = @R;WRITE()
 
 #
 #			Load Data from a location in Memory to a CPU Register
 #
 87-F7,8 8 	"MOV @R,M"
 	*0 	[MA,Opcode]			MA = HL()
-	00 	[PCTR,MB]			READ();@R = MB
+	00 	[PCTR(),MB]			READ();@R = MB
 
 #
 #			Load Immediate Data into a CPU Register
 #
 06-36,8 8 	"MVI @R,$1"
 	*0 	[MA,Opcode]			FETCH()
-	00 	[PCTR,MB]			@R = MB
+	00 	[PCTR(),MB]			@R = MB
 
 #
 #			Load Immediate Data into Memory
@@ -64,35 +104,35 @@ F8-FE 	7 	"MOV M,@R"
 3E		9 	"MVI M,$1"
 	*0 	[MA,Opcode]			FETCH()
 	** 	[MA,MB]				MA = HL()
-	00 	[PCTR,MB]			WRITE()
+	00 	[PCTR(),MB]			WRITE()
 
 #
 #			Increment or Decrement the value of a CPU Register
 #
 08-30,8 5	"INR @R"
-	00 	[PCTR,Opcode]		pszValue = @R = (@R + 1) & 0xFF 
+	00 	[PCTR(),Opcode]		pszValue = @R = (@R + 1) & 0xFF 
 
 09-31,8 5	"DCR @R"
-	00 	[PCTR,Opcode]		pszValue = @R = (@R - 1) & 0xFF 
+	00 	[PCTR(),Opcode]		pszValue = @R = (@R - 1) & 0xFF 
 
 
 #
 #			Arithmetic Instruction (or Compare) between Accumulator and CPU Register
 #
-80-86 	5 	"ADD @R"
-	00 	[PCTR,Opcode]		ADD(@R,0);A = pszValue
+80-86 	5 	"ADD @S"
+	00 	[PCTR(),Opcode]		ADD(@S,0);A = pszValue
 
-88-8E 	5 	"ADC @R"
-	00 	[PCTR,Opcode]		ADD(@R,Carry);A = pszValue
+88-8E 	5 	"ADC @S"
+	00 	[PCTR(),Opcode]		ADD(@S,Carry);A = pszValue
 
-90-96 	5 	"SUB @R"
-	00 	[PCTR,Opcode]		SUB(@R,0);A = pszValue
+90-96 	5 	"SUB @S"
+	00 	[PCTR(),Opcode]		SUB(@S,0);A = pszValue
 
-98-9E 	5 	"SBB @R"
-	00 	[PCTR,Opcode]		SUB(@R,Carry);A = pszValue
+98-9E 	5 	"SBB @S"
+	00 	[PCTR(),Opcode]		SUB(@S,Carry);A = pszValue
 
-B8-BE 	5 	"CMP @R"
-	00 	[PCTR,Opcode]		SUB(@R,0)
+B8-BE 	5 	"CMP @S"
+	00 	[PCTR(),Opcode]		SUB(@S,0)
 
 
 #
@@ -100,103 +140,173 @@ B8-BE 	5 	"CMP @R"
 #
 87 		8 	"ADD M"
 	*0 	[HL,Opcode]			MA = HL()
-	00 	[PCTR,MB]			READ();ADD(MB,0);A = pszValue
+	00 	[PCTR(),MB]			READ();ADD(MB,0);A = pszValue
 
 8F 		8 	"ADC M"
 	*0 	[HL,Opcode]			MA = HL()
-	00 	[PCTR,MB]			READ();ADD(MB,Carry);A = pszValue
+	00 	[PCTR(),MB]			READ();ADD(MB,Carry);A = pszValue
 
 97 		8 	"SUB M"
 	*0 	[HL,Opcode]			MA = HL()
-	00 	[PCTR,MB]			READ();SUB(MB,0);A = pszValue
+	00 	[PCTR(),MB]			READ();SUB(MB,0);A = pszValue
 
 9F 		8 	"SBB M"
 	*0 	[HL,Opcode]			MA = HL()
-	00 	[PCTR,MB]			READ();SUB(MB,Carry);A = pszValue
+	00 	[PCTR(),MB]			READ();SUB(MB,Carry);A = pszValue
 
 8F 		8 	"CMP M"
 	*0 	[HL,Opcode]			MA = HL()
-	00 	[PCTR,MB]			READ();SUB(MB,0)
+	00 	[PCTR(),MB]			READ();SUB(MB,0)
 
 #
 #		Immediate type Arithmetic and Compare instruction
 #	
 04 		8 	"ADI $1"
 	*0 	[MA,Opcode]			FETCH()
-	00 	[PCTR,MB]			ADD(MB,0);A = pszValue
+	00 	[PCTR(),MB]			ADD(MB,0);A = pszValue
 
 0C 		8 	"ACI $1"
 	*0 	[MA,Opcode]			FETCH()
-	00 	[PCTR,MB]			ADD(MB,Carry);A = pszValue
+	00 	[PCTR(),MB]			ADD(MB,Carry);A = pszValue
 
 14 		8 	"SUI $1"
 	*0 	[MA,Opcode]			FETCH()
-	00 	[PCTR,MB]			SUB(MB,0);A = pszValue
+	00 	[PCTR(),MB]			SUB(MB,0);A = pszValue
 
 1C 		8 	"SBI $1"
 	*0 	[MA,Opcode]			FETCH()
-	00 	[PCTR,MB]			SUB(MB,Carry);A = pszValue
+	00 	[PCTR(),MB]			SUB(MB,Carry);A = pszValue
 
 3C 		8 	"CPI $1"
 	*0 	[MA,Opcode]			FETCH()
-	00 	[PCTR,MB]			SUB(MB,0)
+	00 	[PCTR(),MB]			SUB(MB,0)
 
 #
 #		Boolean Math operations between accumulator and CPU Registers
 #
 
-A0-A6	5	"ANA @R"
-	00 	[PCTR,Opcode]		Carry = 0;A = pszValue = A & @R
+A0-A6	5	"ANA @S"
+	00 	[PCTR(),Opcode]		Carry = 0;A = pszValue = A & @S
 
-A8-AE	5	"XRA @R"
-	00 	[PCTR,Opcode]		Carry = 0;A = pszValue = A ^ @R
+A8-AE	5	"XRA @S"
+	00 	[PCTR(),Opcode]		Carry = 0;A = pszValue = A ^ @S
 
-B0-B6	5	"ORA @R"
-	00 	[PCTR,Opcode]		Carry = 0;A = pszValue = A | @R
+B0-B6	5	"ORA @S"
+	00 	[PCTR(),Opcode]		Carry = 0;A = pszValue = A | @S
 
 #
 #		Boolean Math operations between accumulator and location in memory
 #
 A7 		8 	"ANA M"
 	*0 	[HL,Opcode]			MA = HL()
-	00 	[PCTR,MB]			READ();Carry = 0;A = pszValue = A & MB
+	00 	[PCTR(),MB]			READ();Carry = 0;A = pszValue = A & MB
 
 AF 		8 	"XRA M"
 	*0 	[HL,Opcode]			MA = HL()
-	00 	[PCTR,MB]			READ();Carry = 0;A = pszValue = A ^ MB
+	00 	[PCTR(),MB]			READ();Carry = 0;A = pszValue = A ^ MB
 
 B7 		8 	"ANA M"
 	*0 	[HL,Opcode]			MA = HL()
-	00 	[PCTR,MB]			READ();Carry = 0;A = pszValue = A | MB
+	00 	[PCTR(),MB]			READ();Carry = 0;A = pszValue = A | MB
 
 #
 #		Boolean Immediate Instructions
 #
 24 		8 	"ANI $1"
 	*0 	[MA,Opcode]			FETCH()
-	00 	[PCTR,MB]			Carry = 0;A = pszValue = A & MB
+	00 	[PCTR(),MB]			Carry = 0;A = pszValue = A & MB
 
 2C 		8 	"XRI $1"
 	*0 	[MA,Opcode]			FETCH()
-	00 	[PCTR,MB]			Carry = 0;A = pszValue = A ^ MB
+	00 	[PCTR(),MB]			Carry = 0;A = pszValue = A ^ MB
 	
 34 		8 	"ORI $1"
 	*0 	[MA,Opcode]			FETCH()
-	00 	[PCTR,MB]			Carry = 0;A = pszValue = A | MB
+	00 	[PCTR(),MB]			Carry = 0;A = pszValue = A | MB
 	
 #
 #		Accumulator Rotate Instructions
 #
 02 		5	"RLC"
-	00 	[PCTR,Opcode] 		Carry = (A >> 7) & 1;A = ((A << 1) | Carry) & 0xFF
+	00 	[PCTR(),Opcode] 		Carry = (A >> 7) & 1;A = ((A << 1) | Carry) & 0xFF
 
 0A 		5	"RRC"
-	00 	[PCTR,Opcode] 		Carry = A & 1;A = (A >> 1) | (Carry << 7)
+	00 	[PCTR(),Opcode] 		Carry = A & 1;A = (A >> 1) | (Carry << 7)
 
 12 		5 	"RAL"			
-	00 	[PCTR,Opcode] 		temp16 = (A << 1) | Carry;A = temp16 & 0xFF;Carry = temp16 >> 8
+	00 	[PCTR(),Opcode] 		temp16 = (A << 1) | Carry;A = temp16 & 0xFF;Carry = temp16 >> 8
 
 1A 		5 	"RAR"
-	00 	[PCTR,Opcode] 		temp16 = A | (Carry << 8);A = (temp16 >> 1) & 0xFF;Carry = temp16 & 1
+	00 	[PCTR(),Opcode] 		temp16 = A | (Carry << 8);A = (temp16 >> 1) & 0xFF;Carry = temp16 & 1
 
-			
+
+#
+#		Unconditional Jump or Call Instructions
+#			
+
+:#define JUMP()  PC[PCIX] = ((((WORD16)MB) << 8)|temp8) & 0x3FFF
+
+44-7C,8 11	"JMP $2"		
+	*0 	[PCTR(),Opcode]		FETCH();temp8 = MB
+	*0 	[PCTR(),temp8]		FETCH();
+	00 	[PCTR(),MB]			JUMP()
+
+46-7E,8 11 	"CALL $2"	
+	*0 	[PCTR(),Opcode]		FETCH();temp8 = MB
+	*0 	[PCTR(),temp8]		FETCH();
+	00 	[PCTR(),MB]			PCIX = (PCIX+1) & 7;JUMP()
+
+#
+#		Conditional Jump or Call Instructions
+#			
+
+40-78,8 10	"J@C $2"		
+	*0 	[PCTR(),Opcode]		FETCH();temp8 = MB
+	*0 	[PCTR(),temp8]		FETCH();
+	00 	[PCTR(),MB]			if (@T) { JUMP(); }
+
+42-7A,8 10 	"C@C $2"	
+	*0 	[PCTR(),Opcode]		FETCH();temp8 = MB
+	*0 	[PCTR(),temp8]		FETCH();
+	00 	[PCTR(),MB]			if (@T) { PCIX = (PCIX+1) & 7;JUMP(); }
+
+#
+#		Unconditional Return instruction
+#
+07-3F,8 5	"RET"
+	00 	[PCTR(),Opcode]		PCIX = (PCIX-1) & 7
+
+#
+#		Conditional Return instruction
+#
+03-3B,8 4	"R@C"
+	00 	[PCTR(),Opcode]		if (@T) PCIX = (PCIX-1) & 7
+
+#
+#		Restart Instruction
+#
+05-3D,8 5 	"RST @X"
+	00 	[PCTR(),Opcode)]	PCIX = (PCIX+1) & 7;PC[PCIX] = 0x@X
+
+#
+#		Output Instruction
+#	
+51-7F,2 6 	"OUT @X"
+	0* 	[A|(0x@X M<< 8),Opcode]			;
+	00 	[PCTR(),Opcode]		OUTPORT@X(A)
+
+#
+#		Input Instruction
+#
+41-4F,2 8 	"IN @X"
+	0* 	[A|(0x@X M<< 8),Opcode]			;
+	00 	[PCTR(),Opcode]		A = INPORT@X(A)
+
+#
+#		Halt Instruction
+#	
+00-01 	4 	"HLT"
+	00 	[PCTR()-1,Opcode]	Halt = 1
+
+FF 		4 	"HLT"
+	00 	[PCTR()-1,Opcode]	Halt = 1
