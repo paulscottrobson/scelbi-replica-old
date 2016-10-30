@@ -14,14 +14,14 @@
 #
 #	@C 				Bits 3..5 condition name (CC,NZ,P,PO,CS,Z,M,PE)
 #	@P 				Bits 1..5 Port Number in hex (00,01 ... 1F)
-#	@R 				Bits 3..5 register name ABCDEHLM
+#	@S 				Bits 3..5 register name ABCDEHLM
 #	@S 				Bits 0..2 register name ABCDEHLM
 #	@T 				Bits 3..5 tests for @C (on pszValue)
 #	@X 				Bits 3..5 as hexadecimal (08,10,18,20,28,30,38)
 #
 #	Variables:
 #	
-#	8 bit:	A,B,C,D,E,H,L,MB,pszValue,Halt,Carry,PCIX,Opcode,temp8
+#	8 bit:	A,B,C,D,E,H,L,MB,pszValue,Halt,Carry,PCIX,Opcode,temp8,Cycles
 #	16 bit:	PC[8],temp16,MA
 #
 #######################################################################################
@@ -35,6 +35,7 @@
 :static void __Reset8008(void) {
 :	for (A = 0;A < 8;A++) PC[A] = 0;
 :	A = B = C = D = E = H = L = pszValue = Halt = Carry = PCIX = 0;	
+:	Cycles = 0;
 :}
 
 :static void __IsParityEven(void) {
@@ -56,38 +57,38 @@
 #
 #				Load Data from one CPU Register to another CPU Register
 #
-C0-C6	5 	"MOV A,@R"	
-	00	[PCTR(),Opcode]		A = @R
+C0-C6	5 	"MOV A,@S"	
+	00	[PCTR(),Opcode]		A = @S
 
-C8-CE	5 	"MOV B,@R"	
-	00	[PCTR(),Opcode]		B = @R
+C8-CE	5 	"MOV B,@S"	
+	00	[PCTR(),Opcode]		B = @S
 
-D0-D6	5 	"MOV C,@R"	
-	00	[PCTR(),Opcode]		C = @R
+D0-D6	5 	"MOV C,@S"	
+	00	[PCTR(),Opcode]		C = @S
 
-D8-DE	5 	"MOV D,@R"	
-	00	[PCTR(),Opcode]		D = @R
+D8-DE	5 	"MOV D,@S"	
+	00	[PCTR(),Opcode]		D = @S
 
-E0-E6	5 	"MOV E,@R"	
-	00	[PCTR(),Opcode]		E = @R
+E0-E6	5 	"MOV E,@S"	
+	00	[PCTR(),Opcode]		E = @S
 
-E8-EE	5 	"MOV H,@R"	
-	00	[PCTR(),Opcode]		H = @R
+E8-EE	5 	"MOV H,@S"	
+	00	[PCTR(),Opcode]		H = @S
 
-F0-F6	5 	"MOV L,@R"	
-	00	[PCTR(),Opcode]		L = @R
+F0-F6	5 	"MOV L,@S"	
+	00	[PCTR(),Opcode]		L = @S
 
 #
 #			Load Data from a CPU Register into Memory
 #
-F8-FE 	7 	"MOV M,@R"
+F8-FE 	7 	"MOV M,@S"
 	** 	[MA,Opcode]			MA = HL()
-	00  [PCTR(),@R]			MB = @R;WRITE()
+	00  [PCTR(),@S]			MB = @S;WRITE()
 
 #
 #			Load Data from a location in Memory to a CPU Register
 #
-87-F7,8 8 	"MOV @R,M"
+C7-F7,8 8 	"MOV @R,M"
 	*0 	[MA,Opcode]			MA = HL()
 	00 	[PCTR(),MB]			READ();@R = MB
 
@@ -154,7 +155,7 @@ B8-BE 	5 	"CMP @S"
 	*0 	[HL,Opcode]			MA = HL()
 	00 	[PCTR(),MB]			READ();SUB(MB,Carry);A = pszValue
 
-8F 		8 	"CMP M"
+BF 		8 	"CMP M"
 	*0 	[HL,Opcode]			MA = HL()
 	00 	[PCTR(),MB]			READ();SUB(MB,0)
 
@@ -244,7 +245,8 @@ B7 		8 	"ANA M"
 #		Unconditional Jump or Call Instructions
 #			
 
-:#define JUMP()  PC[PCIX] = ((((WORD16)MB) << 8)|temp8) & 0x3FFF
+:#define JUMP() { PC[PCIX] = ((((WORD16)MB) << 8)|temp8) & 0x3FFF; }
+:#define CALL() { PCIX = (PCIX+1) & 7;JUMP(); }
 
 44-7C,8 11	"JMP $2"		
 	*0 	[PCTR(),Opcode]		FETCH();temp8 = MB
@@ -254,7 +256,7 @@ B7 		8 	"ANA M"
 46-7E,8 11 	"CALL $2"	
 	*0 	[PCTR(),Opcode]		FETCH();temp8 = MB
 	*0 	[PCTR(),temp8]		FETCH();
-	00 	[PCTR(),MB]			PCIX = (PCIX+1) & 7;JUMP()
+	00 	[PCTR(),MB]			CALL();
 
 #
 #		Conditional Jump or Call Instructions
@@ -263,12 +265,12 @@ B7 		8 	"ANA M"
 40-78,8 10	"J@C $2"		
 	*0 	[PCTR(),Opcode]		FETCH();temp8 = MB
 	*0 	[PCTR(),temp8]		FETCH();
-	00 	[PCTR(),MB]			if (@T) { JUMP(); }
+	00 	[PCTR(),MB]			if (@T) JUMP()
 
 42-7A,8 10 	"C@C $2"	
 	*0 	[PCTR(),Opcode]		FETCH();temp8 = MB
 	*0 	[PCTR(),temp8]		FETCH();
-	00 	[PCTR(),MB]			if (@T) { PCIX = (PCIX+1) & 7;JUMP(); }
+	00 	[PCTR(),MB]			if (@T) CALL()
 
 #
 #		Unconditional Return instruction
@@ -286,21 +288,21 @@ B7 		8 	"ANA M"
 #		Restart Instruction
 #
 05-3D,8 5 	"RST @X"
-	00 	[PCTR(),Opcode)]	PCIX = (PCIX+1) & 7;PC[PCIX] = 0x@X
+	00 	[PCTR(),Opcode]		PCIX = (PCIX+1) & 7;PC[PCIX] = 0x@X
 
 #
 #		Output Instruction
 #	
-51-7F,2 6 	"OUT @X"
-	0* 	[A|(0x@X M<< 8),Opcode]			;
-	00 	[PCTR(),Opcode]		OUTPORT@X(A)
+51-7F,2 6 	"OUT @P"
+	0* 	[A|(0x@P<< 8),Opcode]			;
+	00 	[PCTR(),Opcode]		OUTPORT@P(A)
 
 #
 #		Input Instruction
 #
-41-4F,2 8 	"IN @X"
-	0* 	[A|(0x@X M<< 8),Opcode]			;
-	00 	[PCTR(),Opcode]		A = INPORT@X(A)
+41-4F,2 8 	"IN @P"
+	0* 	[A|(0x@P<< 8),Opcode]			;
+	00 	[PCTR(),Opcode]		A = INPORT@P(A)
 
 #
 #		Halt Instruction
